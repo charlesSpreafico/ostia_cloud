@@ -1,0 +1,355 @@
+OSTIA – Documentazione Tecnico-Funzionale (Work in Progress)
+1. Obiettivo del progetto
+
+Costruire un’architettura cloud multi-tenant capace di:
+
+gestire autenticazione centralizzata (user → tenant → client),
+
+emettere JWT con claims strutturati,
+
+autorizzare l’accesso a servizi tramite entitlements dinamici configurabili lato DB,
+
+distribuire un client Windows installabile (setup unico) che:
+
+si configura solo con credenziali e parametri tenant/client,
+
+dialoga con i servizi cloud senza pre-requisiti tecnici.
+
+2. Stack Tecnologico Google Cloud in uso
+2.1 Cloud Run
+
+Servizio: ostia-auth
+
+Regione: europe-west1
+
+Runtime: container Python FastAPI
+
+Funzione: autenticazione + emissione JWT + check DB tenant/user/client
+
+Invocazione: HTTP (allow-unauthenticated)
+
+Endpoint:
+https://ostia-auth-658895913530.europe-west1.run.app
+
+2.2 Identity Platform
+
+Modalità: autenticazione email/password
+
+Utenti gestiti nel progetto tramite UID
+
+Il servizio ostia-auth:
+
+valida email/password contro Identity Platform,
+
+riceve lo UID,
+
+verifica se l’utente appartiene al tenant corretto nel DB,
+
+genera il token JWT locale.
+
+2.3 Cloud SQL (PostgreSQL)
+
+Istanza: testsql
+
+Connection name: ostia-478108:europe-west1:testsql
+
+Access tramite gcloud sql connect (IP pubblico temporaneamente allowlistato).
+
+Database: ostia_core
+
+2.4 SQL Schema operativo
+
+Tabelle:
+
+Tabella	Funzione
+tenants	anagrafica tenant
+users	anagrafica utenti legati ai tenant
+clients	postazioni/terminali fisici appartenenti ai tenant
+services	lista servizi disponibili (S1, S2, S3)
+entitlements	matrice tenant/user/client → service → permission
+2.5 IAM / API abilitate
+
+Per il progetto ostia-478108 sono abilitate:
+
+run.googleapis.com
+
+cloudbuild.googleapis.com
+
+artifactregistry.googleapis.com
+
+identitytoolkit.googleapis.com
+
+sqladmin.googleapis.com
+
+3. Struttura del JWT
+
+Il token generato da ostia-auth ha i seguenti claim:
+
+sub → UID Identity Platform
+
+email
+
+tenant_id
+
+client_id
+
+iat
+
+exp
+
+header alg: HS256
+
+Esempio:
+
+{
+  "sub": "bWUqzofy8GZFHRjOpOFKIhxzzu53",
+  "email": "user@client1.it",
+  "tenant_id": "TENANT_001",
+  "client_id": "CLIENT_001",
+  "iat": 1763029224,
+  "exp": 1763032824
+}
+
+4. Struttura del DB Ostia
+
+Stato attuale caricato e memorizzato:
+
+tenants
+tenant_id	name	status
+TENANT_001	Cliente Demo 1	active
+users
+user_id	tenant_id	email	display_name	status
+bWUqzofy8GZFHRjOpOFKIhxzzu53	TENANT_001	user@client1.it
+	Utente Demo	active
+clients
+client_id	tenant_id	name	status
+CLIENT_001	TENANT_001	Postazione Cassa 1	active
+services
+
+s1 – Servizio 1
+s2 – Servizio 2
+s3 – Servizio 3
+
+entitlements
+
+Tenant-wide → s1
+
+Client-specific → CLIENT_001 → s2
+
+User-specific → UID → s3
+
+5. Artefatti Software prodotti
+5.1 ostia-auth
+
+Backend FastAPI:
+
+/login → valida utente + tenant + client → genera JWT
+
+/me → verifica JWT → ritorna i claim
+
+5.2 Client CLI POC
+
+File: ostia_client.py
+Comandi:
+
+python ostia_client.py login
+
+python ostia_client.py me
+
+Funzioni:
+
+salva token in token.json
+
+carica configurazione da config.json
+
+5.3 Client GUI (fase 4)
+
+File: ostia_gui_client.py
+
+Caratteristiche:
+
+GUI scritta in tkinter
+
+Campi configurazione:
+
+Auth URL
+
+Tenant ID
+
+Client ID
+
+Email
+
+Password
+
+Bottoni:
+
+Salva Config
+
+Test Login
+
+Salvataggio config in:
+%APPDATA%\OstiaClient\config.json
+
+Salvataggio token in:
+%APPDATA%\OstiaClient\token.json
+
+5.4 Build EXE
+
+Comando ufficiale da ricordare:
+
+pyinstaller --onefile --noconsole --name OstiaClient ostia_gui_client.py
+
+
+Output:
+
+dist\OstiaClient.exe
+
+5.5 Installer finale (da fare a fine progetto)
+
+Tecnologia scelta: Inno Setup
+
+Script base già definito per generare:
+
+OstiaClientSetup-1.0.0.exe
+
+wizard standard
+
+directory target: C:\Program Files\OstiaClient
+
+icona desktop + icona start menu
+
+6. Variabili note dell’ambiente
+Cloud
+
+Project ID → ostia-478108
+
+Region → europe-west1
+
+Cloud SQL connection name → ostia-478108:europe-west1:testsql
+
+DB → ostia_core
+
+Auth URL → https://ostia-auth-658895913530.europe-west1.run.app
+
+Tenant / Client / User
+
+tenant_id: TENANT_001
+
+client_id: CLIENT_001
+
+email: user@client1.it
+
+password: 123456
+
+user_id: bWUqzofy8GZFHRjOpOFKIhxzzu53
+
+7. Cronologia operativa (step-by-step)
+1) Creazione progetto Google Cloud
+
+Progetto: ostia-478108
+
+Abilitazione API richieste
+
+2) Configurazione Identity Platform
+
+Abilitato email/password
+
+Creato primo utente demo
+
+Ottenuto UID
+
+3) Creazione istanza Cloud SQL
+
+PostgreSQL
+
+Nome: testsql
+
+IP Pubblico attivo
+
+Connessione tramite:
+
+gcloud sql connect testsql --user=postgres --database=postgres
+
+4) Creazione database ostia_core
+CREATE DATABASE ostia_core;
+
+5) Definizione schema DB
+
+Create tenants/users/clients/services/entitlements
+
+6) Inserimento dati demo
+
+TENANT_001
+
+CLIENT_001
+
+user demo
+
+servizi s1,s2,s3
+
+entitlements base
+
+7) Deploy ostia-auth su Cloud Run
+gcloud run deploy ostia-auth --source . --region=europe-west1 --platform=managed --allow-unauthenticated
+
+8) Test integrazione ostia-auth
+
+/login → OK
+
+/me → OK
+
+9) Sviluppo client CLI
+
+login/me → OK
+
+10) Sviluppo client GUI
+
+configurazione via UI
+
+test login via UI
+
+salvataggio config e token in %APPDATA%
+
+11) Build EXE con PyInstaller
+
+generazione binario standalone
+
+8. Stato attuale del progetto (end of Phase 4)
+Componente	Stato
+Identity Platform	operativo
+ostia-auth (Cloud Run)	operativo
+DB ostia_core (Cloud SQL)	operativo
+JWT con claims multi-tenant	operativo
+Client CLI	operativo
+Client GUI	operativo
+EXE standalone	operativo
+Installer Windows	da generare nella fase finale
+9. Prossimi step consigliati
+Fase 5 – Router
+
+Creare ostia-router (Cloud Run)
+
+Verifica token
+
+Query autorizzazioni su entitlements
+
+Instradamento verso s1/s2/s3
+
+Fase 6 – Servizi applicativi
+
+s1 → placeholder API
+
+s2 → placeholder
+
+s3 → placeholder
+
+Fase 7 – Installer finale
+
+Inno Setup script .iss definitivo
+
+Branding
+
+Versioni
+
+Packaging semplificato per supporto e rollout massivo

@@ -1,0 +1,7 @@
+{
+  "auth_url": "https://ostia-auth-658895913530.europe-west1.run.app",
+  "tenant_id": "TENANT_001",
+  "client_id": "CLIENT_001",
+  "email": "user@client1.it",
+  "password": "123456"
+}
