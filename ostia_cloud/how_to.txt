@@ -1,0 +1,263 @@
+RUNBOOK – RICOSTRUZIONE TOTALE DEL PROGETTO OSTIA (FASE 0 → FASE 4)
+1. Creazione e preparazione del progetto Google Cloud
+1.1 Crea un nuovo progetto
+
+Console → IAM & Admin → Create Project
+Esempio nome: ostia-xxxxx
+
+1.2 Attiva le API necessarie
+
+Da Cloud Shell:
+
+gcloud services enable run.googleapis.com
+gcloud services enable cloudbuild.googleapis.com
+gcloud services enable artifactregistry.googleapis.com
+gcloud services enable sqladmin.googleapis.com
+gcloud services enable identitytoolkit.googleapis.com
+
+2. Configurazione Identity Platform (IdP)
+2.1 Abilita Identity Platform
+
+Google Cloud → Identity Platform → Enable
+
+2.2 Abilita provider Email/Password
+
+Identity Platform → Authentication → Providers → Email/Password → Enable
+
+2.3 Crea un utente di test
+
+Email: user@client1.it
+Password: 123456
+UID → lo recupererai dopo dal pannello utenti.
+
+3. Creazione del database in Cloud SQL
+3.1 Crea una nuova istanza PostgreSQL
+
+Cloud SQL → Create instance → PostgreSQL
+Parametri essenziali:
+
+Nome: testsql
+
+Regione: europe-west1
+
+3.2 Crea il database applicativo
+
+Da Cloud Shell:
+
+gcloud sql connect testsql --user=postgres --database=postgres
+
+
+Nel prompt psql:
+
+CREATE DATABASE ostia_core;
+\q
+
+3.3 Connettiti al nuovo database
+gcloud sql connect testsql --user=postgres --database=ostia_core
+
+4. Creazione schema DB ostia_core
+
+Nel prompt PostgreSQL:
+
+CREATE TABLE tenants (
+  tenant_id VARCHAR PRIMARY KEY,
+  name VARCHAR,
+  status VARCHAR,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE users (
+  user_id VARCHAR PRIMARY KEY,
+  tenant_id VARCHAR REFERENCES tenants(tenant_id),
+  email VARCHAR,
+  display_name VARCHAR,
+  status VARCHAR,
+  created_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT users_tenant_email_uk UNIQUE (tenant_id, email)
+);
+
+CREATE TABLE clients (
+  client_id VARCHAR PRIMARY KEY,
+  tenant_id VARCHAR REFERENCES tenants(tenant_id),
+  name VARCHAR,
+  status VARCHAR,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE services (
+  service_id VARCHAR PRIMARY KEY,
+  name VARCHAR,
+  description VARCHAR,
+  status VARCHAR,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE entitlements (
+  id SERIAL PRIMARY KEY,
+  tenant_id VARCHAR REFERENCES tenants(tenant_id),
+  user_id VARCHAR,
+  client_id VARCHAR,
+  service_id VARCHAR REFERENCES services(service_id),
+  permission VARCHAR,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+5. Inserimento dati demo (tenant, user, client, servizi, entitlements)
+5.1 Tenant
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ('TENANT_001', 'Cliente Demo 1', 'active');
+
+5.2 Utente
+
+Usa l’UID reale dell’utente in Identity Platform:
+
+INSERT INTO users (user_id, tenant_id, email, display_name, status)
+VALUES ('<UID>', 'TENANT_001', 'user@client1.it', 'Utente Demo', 'active');
+
+5.3 Client
+INSERT INTO clients (client_id, tenant_id, name, status)
+VALUES ('CLIENT_001', 'TENANT_001', 'Postazione Cassa 1', 'active');
+
+5.4 Servizi
+INSERT INTO services (service_id, name, description, status)
+VALUES
+('s1','Servizio 1','Descrizione servizio 1','active'),
+('s2','Servizio 2','Descrizione servizio 2','active'),
+('s3','Servizio 3','Descrizione servizio 3','active');
+
+5.5 Entitlements
+INSERT INTO entitlements (tenant_id, service_id, permission)
+VALUES ('TENANT_001','s1','use');
+
+INSERT INTO entitlements (tenant_id, client_id, service_id, permission)
+VALUES ('TENANT_001','CLIENT_001','s2','use');
+
+INSERT INTO entitlements (tenant_id, user_id, service_id, permission)
+VALUES ('TENANT_001','<UID>','s3','use');
+
+6. Creazione del servizio ostia-auth
+6.1 Prepara il repository locale
+
+Cartella:
+
+ostia_auth/
+  main.py
+  requirements.txt
+  Dockerfile
+
+6.2 Logica ostia-auth
+
+Funzioni fondamentali:
+
+/login → verifica Identity Platform, controlla DB, genera JWT
+
+/me → validazione JWT
+
+6.3 Deploy Cloud Run
+
+Da terminale dentro cartella del progetto:
+
+gcloud run deploy ostia-auth \
+  --source . \
+  --region=europe-west1 \
+  --platform=managed \
+  --allow-unauthenticated
+
+
+Output ti fornisce l’URL, es:
+
+https://ostia-auth-658895913530.europe-west1.run.app
+
+7. Test end-to-end ostia-auth
+7.1 Test /login
+curl -X POST "https://ostia-auth.../login" `
+  -H "Content-Type: application/json" `
+  --data-raw '{ "tenant_id": "TENANT_001", "email": "user@client1.it", "password": "123456", "client_id": "CLIENT_001" }'
+
+7.2 Test /me
+curl https://ostia-auth.../me -H "Authorization: Bearer <access_token>"
+
+8. Creazione Client (CLI e GUI)
+8.1 Client CLI
+
+Funzionalità:
+
+login
+
+me
+
+salvataggio token
+
+8.2 Client GUI
+
+Caratteristiche:
+
+Schermata con campi configurazione:
+
+Auth URL
+
+Tenant ID
+
+Client ID
+
+Email
+
+Password
+
+Bottoni “Salva config” e “Test login”
+
+Salvataggio config e token in:
+%APPDATA%\OstiaClient\
+
+9. Build EXE del client
+
+Comando ufficiale:
+
+pyinstaller --onefile --noconsole --name OstiaClient ostia_gui_client.py
+
+
+Risultato:
+
+dist\OstiaClient.exe (portabile, senza Python)
+
+10. (Fase finale) Creazione installer Windows
+
+Tool consigliato: Inno Setup
+
+Script .iss:
+
+installa in C:\Program Files\OstiaClient
+
+crea icona Start Menu
+
+crea icona Desktop (opzionale)
+
+Output:
+
+OstiaClientSetup-1.0.0.exe
+
+Questo è ciò che distribuisci a 500 clienti.
+
+11. Risultato finale ottenuto
+
+Hai raggiunto:
+
+Identità centralizzata (Identity Platform)
+
+Gestione multi-tenant, multi-user, multi-client via DB
+
+JWT con claims utilizzabili da altri servizi
+
+Servizio ostia-auth stabile in Cloud Run
+
+Client desktop:
+
+configurabile
+
+test login integrato
+
+salvataggio config/token in area utente
+
+eseguibile standalone
+
+pronto per installer aziendale
